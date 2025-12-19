@@ -151,7 +151,7 @@
         z-index: 100;
         font-family: sans-serif;
       }
-      
+
       /* Countdown Overlay */
       #countdown-overlay {
         position: absolute;
@@ -172,7 +172,7 @@
     <div id="side-panel">
       <h3>🎄 Danh Sách Quà</h3>
       <textarea id="nameInput" spellcheck="false"></textarea>
-      <p class="small-guide">Nhập tên người nhận quà...</p>
+      <p class="small-guide">Nhập số thứ tự quà...</p>
     </div>
 
     <div id="copyright">© Magic Christmas</div>
@@ -183,22 +183,24 @@
 
     <script>
       // ==========================================
-      // 1. DATA & CONFIG
+      // 1. DATA & CONFIG (Đã cập nhật Audio & Smoothing)
       // ==========================================
       let nameList = [];
       let nameMeshes = [];
       let winnerIndex = -1;
       let spinProgress = 0;
-      
-      // -- NEW VARIABLES FOR 10S LOGIC --
-      let isProcessingWinner = false; // Khóa trạng thái khi đang hiện tên
+
+      let isProcessingWinner = false;
       let countdownTimer = null;
 
-      const MUSIC_URL =
-        "https://cdn.pixabay.com/download/audio/2022/11/22/audio_c352a382e4.mp3?filename=jingle-bells-christmas-hip-hop-126487.mp3";
-      let bgMusic = new Audio(MUSIC_URL);
+      // --- CẬP NHẬT: Nhạc nền cục bộ ---
+      const bgMusic = new Audio("audio.mp3");
       bgMusic.loop = true;
       bgMusic.volume = 0.4;
+
+      // --- CẬP NHẬT: Biến chống nhiễu (Smoothing) ---
+      let gestureBuffer = [];
+      const BUFFER_SIZE = 5; // Lưu 5 khung hình gần nhất để lấy kết quả trung bình
 
       // --- TEXTURE GENERATORS ---
       function createCustomTexture(type) {
@@ -234,7 +236,6 @@
         return new THREE.CanvasTexture(canvas);
       }
 
-      // 2. ELEGANT MINIMALIST NAME TAG
       function createNameTexture(name) {
         const W = 512;
         const H = 160;
@@ -242,13 +243,10 @@
         canvas.width = W;
         canvas.height = H;
         const ctx = canvas.getContext("2d");
-
-        // --- 1. Base ---
         const bgGrd = ctx.createLinearGradient(0, 0, 0, H);
         bgGrd.addColorStop(0, "#FFFFF0");
         bgGrd.addColorStop(1, "#F5F5DC");
         ctx.fillStyle = bgGrd;
-
         const r = 20;
         const x = 8;
         const y = 8;
@@ -257,53 +255,21 @@
         ctx.beginPath();
         ctx.roundRect(x, y, w, h, r);
         ctx.fill();
-
-        // --- 2. Inner Shadow ---
-        ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
-        ctx.shadowBlur = 12;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 2;
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.02)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(x + 2, y + 2, w - 4, h - 4, r - 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // --- 3. Border ---
         ctx.lineWidth = 3;
         const borderGrd = ctx.createLinearGradient(0, 0, W, 0);
         borderGrd.addColorStop(0, "#D4AF37");
         borderGrd.addColorStop(0.5, "#F4E5B8");
         borderGrd.addColorStop(1, "#D4AF37");
         ctx.strokeStyle = borderGrd;
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, r);
         ctx.stroke();
-
-        // --- 4. Decor ---
-        ctx.fillStyle = "#D4AF37";
-        const cornerSize = 8;
-        ctx.beginPath(); ctx.arc(x + 15, y + 15, cornerSize, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(x + w - 15, y + 15, cornerSize, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(x + 15, y + h - 15, cornerSize, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(x + w - 15, y + h - 15, cornerSize, 0, Math.PI * 2); ctx.fill();
-
-        // --- 5. Typography ---
         let fontSize = 70;
         if (name.length > 10) fontSize = 55;
         if (name.length > 15) fontSize = 45;
-
         ctx.font = `700 ${fontSize}px "Playfair Display", serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.15)";
-        ctx.shadowBlur = 3;
-        ctx.shadowOffsetX = 1;
-        ctx.shadowOffsetY = 2;
         ctx.fillStyle = "#1A1A1A";
         ctx.fillText(name, W / 2, H / 2 + 2);
-
         const tex = new THREE.CanvasTexture(canvas);
         tex.minFilter = THREE.LinearFilter;
         return tex;
@@ -323,11 +289,15 @@
         treeBaseRadius: 45,
       };
 
-      let scene, camera, renderer;
-      let groupSnow, groupLights, groupOrnaments;
-      let groupNamesContainer;
-      let titleMesh, starMesh;
-
+      let scene,
+        camera,
+        renderer,
+        groupSnow,
+        groupLights,
+        groupOrnaments,
+        groupNamesContainer,
+        titleMesh,
+        starMesh;
       let state = "TREE";
 
       // ==========================================
@@ -337,7 +307,6 @@
         const container = document.getElementById("canvas-container");
         scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x020f05, 0.002);
-
         camera = new THREE.PerspectiveCamera(
           60,
           window.innerWidth / window.innerHeight,
@@ -345,7 +314,6 @@
           1000
         );
         camera.position.z = 140;
-
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -364,7 +332,6 @@
           4.0,
           "TREE_ORNAMENTS"
         );
-
         groupNamesContainer = new THREE.Group();
         scene.add(groupNamesContainer);
 
@@ -379,12 +346,10 @@
         const explodeTargets = [];
         const sizes = [];
         const phases = [];
-
         for (let i = 0; i < count; i++) {
           const h = Math.random() * CONFIG.treeHeight;
           const y = h - CONFIG.treeHeight / 2;
           const maxR = (1 - h / CONFIG.treeHeight) * CONFIG.treeBaseRadius;
-
           let r, theta;
           if (behaviorType === "SNOW") {
             positions.push(
@@ -400,10 +365,8 @@
             positions.push(r * Math.cos(theta), y, r * Math.sin(theta));
             velocities.push(0, 0, 0);
           }
-
           theta = Math.random() * Math.PI * 2;
           treeTargets.push(r * Math.cos(theta), y, r * Math.sin(theta));
-
           const rad = 100 * Math.cbrt(Math.random());
           const u = Math.random();
           const v = Math.random();
@@ -414,18 +377,15 @@
             rad * Math.sin(phi) * Math.sin(lam),
             rad * Math.cos(phi)
           );
-
           sizes.push(size);
           phases.push(Math.random() * Math.PI * 2);
         }
-
         const geo = new THREE.BufferGeometry();
         geo.setAttribute(
           "position",
           new THREE.Float32BufferAttribute(positions, 3)
         );
         geo.setAttribute("size", new THREE.Float32BufferAttribute(sizes, 1));
-
         const colors = new Float32Array(count * 3);
         const baseC = new THREE.Color(
           texType === "gold"
@@ -440,7 +400,6 @@
           colors[i * 3 + 2] = baseC.b;
         }
         geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-
         geo.userData = {
           behavior: behaviorType,
           tree: treeTargets,
@@ -449,7 +408,6 @@
           phases: phases,
           baseSize: size,
         };
-
         const mat = new THREE.PointsMaterial({
           size: size,
           map: textures[texType],
@@ -476,7 +434,6 @@
         }
         nameMeshes = [];
         const geo = new THREE.PlaneGeometry(22, 7);
-
         nameList.forEach((name, i) => {
           const tex = createNameTexture(name);
           const mat = new THREE.MeshBasicMaterial({
@@ -487,23 +444,21 @@
           });
           const mesh = new THREE.Mesh(geo, mat);
           mesh.visible = false;
-
-          const glowGeo = new THREE.PlaneGeometry(24, 9);
-          const glowMat = new THREE.MeshBasicMaterial({
-            color: 0x330000,
-            transparent: true,
-            opacity: 0.5,
-            blending: THREE.MultiplyBlending,
-            depthWrite: false,
-          });
-          const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+          const glowMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(24, 9),
+            new THREE.MeshBasicMaterial({
+              color: 0x330000,
+              transparent: true,
+              opacity: 0.5,
+              blending: THREE.MultiplyBlending,
+              depthWrite: false,
+            })
+          );
           glowMesh.position.z = -0.5;
           mesh.add(glowMesh);
-
           groupNamesContainer.add(mesh);
           nameMeshes.push(mesh);
         });
-        if (winnerIndex >= nameList.length) winnerIndex = -1;
       }
 
       function createDecorations() {
@@ -517,13 +472,13 @@
         ctx.shadowColor = "#D42426";
         ctx.shadowBlur = 20;
         ctx.fillText("I-86 Giáng Sinh An Lành", 512, 140);
-
-        const tex = new THREE.CanvasTexture(canvas);
-        const mat = new THREE.MeshBasicMaterial({
-          map: tex,
-          transparent: true,
-        });
-        titleMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 20), mat);
+        titleMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(80, 20),
+          new THREE.MeshBasicMaterial({
+            map: new THREE.CanvasTexture(canvas),
+            transparent: true,
+          })
+        );
         titleMesh.position.set(0, 60, 0);
         scene.add(titleMesh);
 
@@ -532,8 +487,6 @@
         starCanvas.height = 128;
         const sCtx = starCanvas.getContext("2d");
         sCtx.fillStyle = "#FFD700";
-        sCtx.shadowColor = "#FFF";
-        sCtx.shadowBlur = 30;
         sCtx.beginPath();
         const cx = 64,
           cy = 64,
@@ -551,13 +504,14 @@
         }
         sCtx.closePath();
         sCtx.fill();
-        const starTex = new THREE.CanvasTexture(starCanvas);
-        const starMat = new THREE.MeshBasicMaterial({
-          map: starTex,
-          transparent: true,
-          blending: THREE.AdditiveBlending,
-        });
-        starMesh = new THREE.Mesh(new THREE.PlaneGeometry(18, 18), starMat);
+        starMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(18, 18),
+          new THREE.MeshBasicMaterial({
+            map: new THREE.CanvasTexture(starCanvas),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+          })
+        );
         starMesh.position.set(0, CONFIG.treeHeight / 2 + 5, 0);
         scene.add(starMesh);
       }
@@ -578,11 +532,8 @@
               positions[idx] = (Math.random() - 0.5) * 150;
               positions[idx + 2] = (Math.random() - 0.5) * 100;
             }
-            sizes[i] =
-              u.baseSize * (0.8 + 0.4 * Math.sin(time * 2 + u.phases[i]));
           }
           group.geometry.attributes.position.needsUpdate = true;
-          group.geometry.attributes.size.needsUpdate = true;
           return;
         }
 
@@ -591,27 +542,15 @@
           positions[idx] += (targets[idx] - positions[idx]) * speed;
           positions[idx + 1] += (targets[idx + 1] - positions[idx + 1]) * speed;
           positions[idx + 2] += (targets[idx + 2] - positions[idx + 2]) * speed;
-
-          if (u.behavior === "TREE_LIGHTS") {
-            sizes[i] =
-              u.baseSize * (0.5 + 0.5 * Math.sin(time * 5 + u.phases[i]));
-          }
         }
         group.geometry.attributes.position.needsUpdate = true;
-        group.geometry.attributes.size.needsUpdate = true;
-
-        if (targetState === "EXPLODE") {
-          group.rotation.y -= 0.01;
-        } else {
-          group.rotation.y += 0.003;
-        }
+        group.rotation.y += targetState === "EXPLODE" ? -0.01 : 0.003;
       }
 
       function animate() {
         requestAnimationFrame(animate);
         const time = Date.now() * 0.001;
         const pSpeed = 0.08;
-
         let pState = state === "TREE" ? "TREE" : "EXPLODE";
 
         updateParticles(groupSnow, pState, pSpeed, time);
@@ -622,8 +561,6 @@
           titleMesh.visible = true;
           starMesh.visible = true;
           titleMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-          starMesh.rotation.z = Math.sin(time) * 0.1;
-          starMesh.scale.setScalar(1 + Math.sin(time * 2) * 0.1);
           nameMeshes.forEach((m) => {
             m.visible = false;
             m.scale.set(0, 0, 0);
@@ -631,47 +568,42 @@
         } else if (state === "SPIN") {
           titleMesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.15);
           starMesh.visible = false;
-          if (nameList.length === 0) return;
-
-          spinProgress += 0.15;
-          const total = nameMeshes.length;
-          const angleStep = (Math.PI * 2) / total;
-          const radius = 55 + Math.sin(time * 3) * 2;
-
-          nameMeshes.forEach((mesh, i) => {
-            mesh.visible = true;
-            const angle = i * angleStep - spinProgress;
-            const x = Math.sin(angle) * radius;
-            const z = Math.cos(angle) * radius;
-            const y = Math.cos(angle * 2 + time * 4) * 5;
-
-            mesh.position.lerp(new THREE.Vector3(x, y, z), 0.2);
-            mesh.quaternion.copy(camera.quaternion);
-            mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-            mesh.material.opacity = 1.0;
-          });
-        } else if (state === "RESULT") {
-          if (nameList.length === 0 || winnerIndex === -1) return;
-
-          nameMeshes.forEach((mesh, i) => {
-            if (i === winnerIndex) {
+          if (nameList.length > 0) {
+            spinProgress += 0.15;
+            const angleStep = (Math.PI * 2) / nameMeshes.length;
+            nameMeshes.forEach((mesh, i) => {
               mesh.visible = true;
-              mesh.position.lerp(new THREE.Vector3(0, 0, 90), 0.1);
+              const angle = i * angleStep - spinProgress;
+              const x = Math.sin(angle) * 55;
+              const z = Math.cos(angle) * 55;
+              mesh.position.lerp(
+                new THREE.Vector3(x, Math.cos(angle * 2 + time * 4) * 5, z),
+                0.2
+              );
               mesh.quaternion.copy(camera.quaternion);
-
-              const pulse = 3.5 + Math.sin(time * 10) * 0.2;
-              mesh.scale.lerp(new THREE.Vector3(pulse, pulse, pulse), 0.1);
-              mesh.rotation.z = Math.sin(time * 5) * 0.05;
-            } else {
-              mesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.1);
-            }
-          });
+              mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+            });
+          }
+        } else if (state === "RESULT") {
+          if (winnerIndex !== -1) {
+            nameMeshes.forEach((mesh, i) => {
+              if (i === winnerIndex) {
+                mesh.visible = true;
+                mesh.position.lerp(new THREE.Vector3(0, 0, 90), 0.1);
+                mesh.quaternion.copy(camera.quaternion);
+                const pulse = 3.5 + Math.sin(time * 10) * 0.2;
+                mesh.scale.lerp(new THREE.Vector3(pulse, pulse, pulse), 0.1);
+              } else {
+                mesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.1);
+              }
+            });
+          }
         }
         renderer.render(scene, camera);
       }
 
       // ==========================================
-      // 3. HAND & INPUT
+      // 3. HAND & INPUT (Cập nhật Smoothing Logic)
       // ==========================================
       function updateNamesFromInput() {
         const input = document.getElementById("nameInput");
@@ -686,32 +618,32 @@
         }
       }
 
+      function startWinnerCountdown() {
+        isProcessingWinner = true;
+        const overlay = document.getElementById("countdown-overlay");
+        if (overlay) overlay.style.display = "block";
+        setTimeout(() => {
+          if (winnerIndex > -1 && winnerIndex < nameList.length)
+            nameList.splice(winnerIndex, 1);
+          document.getElementById("nameInput").value = nameList.join("\n");
+          winnerIndex = -1;
+          generateNameMeshes();
+          if (overlay) overlay.style.display = "none";
+          state = "TREE";
+          isProcessingWinner = false;
+          gestureBuffer = []; // Reset buffer sau khi xong
+        }, 10000);
+      }
+
       function startSystem() {
+        // --- CẬP NHẬT: Kích hoạt nhạc khi click ---
         document.body.addEventListener(
           "click",
           () => {
-            bgMusic.play().catch(() => {});
+            bgMusic.play().catch((e) => console.log("Audio play blocked"));
           },
           { once: true }
         );
-
-        // Toggle panel button
-        const toggleBtn = document.getElementById("toggle-panel-btn");
-        const sidePanel = document.getElementById("side-panel");
-        let isPanelVisible = true;
-
-        toggleBtn.addEventListener("click", () => {
-          isPanelVisible = !isPanelVisible;
-          if (isPanelVisible) {
-            sidePanel.classList.remove("hidden");
-            toggleBtn.textContent = "◀";
-            toggleBtn.style.left = "300px";
-          } else {
-            sidePanel.classList.add("hidden");
-            toggleBtn.textContent = "▶";
-            toggleBtn.style.left = "20px";
-          }
-        });
 
         init3D();
         updateNamesFromInput();
@@ -722,7 +654,8 @@
         const video = document.getElementsByClassName("input_video")[0];
         const canvas = document.getElementById("camera-preview");
         const ctx = canvas.getContext("2d");
-
+        canvas.width = 320;
+        canvas.height = 240;
         const hands = new Hands({
           locateFile: (file) =>
             `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
@@ -734,54 +667,12 @@
           minTrackingConfidence: 0.6,
         });
 
-        // --- WINNER HANDLING LOGIC ---
-        function startWinnerCountdown() {
-            isProcessingWinner = true; // LOCK STATE
-            
-            // Show overlay timer logic if needed, currently just waits
-            const overlay = document.getElementById("countdown-overlay");
-            if(overlay) {
-                overlay.style.display = "block";
-            }
-
-            // 10 SECONDS TIMER
-            setTimeout(() => {
-                removeWinnerAndReset();
-            }, 10000); // 10000 ms = 10s
-        }
-
-        function removeWinnerAndReset() {
-            // Remove winner from list
-            if (winnerIndex > -1 && winnerIndex < nameList.length) {
-                nameList.splice(winnerIndex, 1);
-            }
-
-            // Update Textarea
-            document.getElementById("nameInput").value = nameList.join("\n");
-            
-            // Re-sync global nameList just in case
-            if (nameList.length === 0) nameList = ["..."];
-
-            // Reset Logic
-            winnerIndex = -1;
-            generateNameMeshes();
-            
-            // Reset UI
-            const overlay = document.getElementById("countdown-overlay");
-            if(overlay) overlay.style.display = "none";
-
-            // Unlock State
-            state = "TREE";
-            isProcessingWinner = false;
-        }
-
         hands.onResults((results) => {
-          ctx.clearRect(0, 0, 100, 75);
-          if (results.image) ctx.drawImage(results.image, 0, 0, 100, 75);
-          
-          // !!! QUAN TRỌNG: Nếu đang đếm ngược 10s thì không nhận diện tay nữa
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
           if (isProcessingWinner) return;
 
+          let rawState = "TREE";
           if (results.multiHandLandmarks.length > 0) {
             const lm = results.multiHandLandmarks[0];
             const tips = [8, 12, 16, 20];
@@ -793,38 +684,47 @@
             );
             const avgDist = openDist / 4;
 
-            if (avgDist > 0.28) {
-              state = "SPIN";
-              winnerIndex = -1;
-            } else if (avgDist < 0.18) {
-              // Nắm tay lại -> Kết quả
-              state = "RESULT";
-              if (
-                winnerIndex === -1 &&
-                nameList.length > 0 &&
-                nameList[0] !== "..."
-              ) {
-                winnerIndex = Math.floor(Math.random() * nameList.length);
-                // Bắt đầu quy trình 10s
-                startWinnerCountdown();
-              }
-            } else {
-              if (state === "TREE") state = "SPIN";
-            }
+            if (avgDist > 0.28) rawState = "SPIN";
+            else if (avgDist < 0.22) rawState = "RESULT";
+            else rawState = "SPIN"; // Trạng thái chuyển giao
           } else {
-            state = "TREE";
-            winnerIndex = -1;
+            rawState = "TREE";
+          }
+
+          // --- CẬP NHẬT: Smoothing Buffer ---
+          gestureBuffer.push(rawState);
+          if (gestureBuffer.length > BUFFER_SIZE) gestureBuffer.shift();
+
+          // Lấy trạng thái xuất hiện nhiều nhất trong buffer
+          const counts = {};
+          gestureBuffer.forEach((s) => (counts[s] = (counts[s] || 0) + 1));
+          const smoothedState = Object.keys(counts).reduce((a, b) =>
+            counts[a] > counts[b] ? a : b
+          );
+
+          // Cập nhật state chính từ smoothedState
+          if (smoothedState === "RESULT" && state !== "RESULT") {
+            state = "RESULT";
+            if (
+              winnerIndex === -1 &&
+              nameList.length > 0 &&
+              nameList[0] !== "..."
+            ) {
+              winnerIndex = Math.floor(Math.random() * nameList.length);
+              startWinnerCountdown();
+            }
+          } else if (state !== "RESULT") {
+            state = smoothedState;
           }
         });
 
-        const cameraUtils = new Camera(video, {
+        new Camera(video, {
           onFrame: async () => {
             await hands.send({ image: video });
           },
           width: 320,
           height: 240,
-        });
-        cameraUtils.start();
+        }).start();
       }
 
       window.addEventListener("load", startSystem);
